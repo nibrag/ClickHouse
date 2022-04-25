@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from typing import List, Optional
 import argparse
 import logging
+import subprocess
 
 from git_helper import commit, release_branch
 from version_helper import (
@@ -74,6 +75,9 @@ class Release:
         return self._git.run(cmd, cwd)
 
     def set_release_branch(self):
+        # Fetch release commit in case it does not exist locally
+        self.run(f"git fetch {self.repo.url} {self.release_branch}")
+
         # Get the actual version for the commit before check
         with self._checkout(self.release_commit, True):
             self.read_version()
@@ -97,7 +101,11 @@ class Release:
 
         if check_dirty:
             logging.info("Checking if repo is clean")
-            self.run("git diff HEAD --exit-code")
+            try:
+                self.run("git diff HEAD --exit-code")
+            except subprocess.CalledProcessError:
+                logging.fatal("Repo contains uncommitted changes")
+                raise
 
         self.set_release_branch()
 
@@ -131,26 +139,26 @@ class Release:
             )
 
     def check_branch(self):
+        branch = self.release_branch
+        self.run(f"git fetch {self.repo.url} {branch}:{branch}")
         if self.release_type in self.BIG:
             # Commit to spin up the release must belong to a main branch
             branch = "master"
-            output = self.run(f"git branch --contains={self.release_commit} {branch}")
-            if branch not in output:
-                raise Exception(
-                    f"commit {self.release_commit} must belong to {branch} for "
-                    f"{self.release_type} release"
+            self.run(f"git fetch {self.repo.url} {branch}:{branch}")
+        elif self.release_type not in self.SMALL:
+            raise (
+                ValueError(
+                    f"release_type {self.release_type} neiter in {self.BIG} nor "
+                    f"in {self.SMALL}"
                 )
-            return
-        elif self.release_type in self.SMALL:
-            output = self.run(
-                f"git branch --contains={self.release_commit} {self.release_branch}"
             )
-            if self.release_branch not in output:
-                raise Exception(
-                    f"commit {self.release_commit} must be in "
-                    f"'{self.release_branch}' branch for {self.release_type} release"
-                )
-            return
+
+        output = self.run(f"git branch --contains={self.release_commit} {branch}")
+        if branch not in output:
+            raise Exception(
+                f"commit {self.release_commit} must belong to {branch} "
+                f"for {self.release_type} release"
+            )
 
     def log_rollback(self):
         if self._rollback_stack:
