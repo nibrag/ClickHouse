@@ -625,6 +625,17 @@ def test_uuid(started_cluster):
     assert result.strip() == "Nullable(UUID)"
 
 
+def test_empty_array(started_cluster):
+    cursor = started_cluster.postgres_conn.cursor()
+    cursor.execute("drop table if exists test")
+    cursor.execute("create table test as select '{}'::bigint[] arr;")
+    cursor.execute("insert into test VALUES('{}');")
+
+    result = node1.query(
+        "select * from postgresql(postgres1, table='test')"
+    )
+
+
 if __name__ == "__main__":
     cluster.start()
     input("Cluster created, press any key to destroy...")
